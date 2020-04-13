@@ -1,0 +1,27 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  namespace: kube-system
+  name: ked-ssd-provisioner
+spec:
+  template:
+    metadata:
+      labels:
+        name: ked-ssd-provisioner
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      containers:
+        - name: ked-ssd-provisioner
+          image: quay.io/scrothers/ked:1.0.0
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - mountPath: /ephemeral
+              name: ephemeral-disks
+              mountPropagation: "Bidirectional"
+      volumes:
+        - name: ephemeral-disks
+          hostPath:
+            path: /ephemeral
