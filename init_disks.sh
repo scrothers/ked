@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -o errexit
 set -o nounset
 set -o pipefail
 
@@ -18,6 +17,7 @@ function mount_block_device {
   if test ${UUID_STATUS} -eq 0; then
     MOUNT_DESTINATION="${MOUNT_DIRECTORY}/${UUID}"
     echo "==> Mounting the device ${BLOCK_DEVICE} to ${MOUNT_DESTINATION}"
+    /usr/bin/mkdir -p ${MOUNT_DESTINATION}
     /usr/bin/mount \
       -o defaults,noatime,discard,nobarrier \
       ${BLOCK_DEVICE} \
@@ -54,10 +54,8 @@ function format_block_device {
 
 # Format a RAID device.
 function format_raid_device {
-  local UUID=$(blkid -s UUID -o value ${BLOCK_DEVICE})
-  local UUID_STATUS=$?
-
-  if test ${UUID_STATUS} -eq 0; then
+  /usr/sbin/blkid -s UUID -o value /dev/md0 2>&1 > /dev/null
+  if test $? -eq 0; then
     echo "==> Filesystem already exists on the raid device, continuing."
 
     return 0
