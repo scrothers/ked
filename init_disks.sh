@@ -8,6 +8,11 @@ MOUNT_DIRECTORY=${MOUNT_DIRECTORY:-"/ephemeral"}
 NVME_DISKS=($(/usr/sbin/nvme list | /usr/bin/grep "Amazon EC2 NVMe Instance Storage" | /usr/bin/awk '{print $1}'))
 NVME_DISK_COUNT=${#NVME_DISKS[@]}
 
+# Console printing method for when we're aggregating logs.
+function write_console {
+  printf "%-30s ==> %s\r\n" "[${HOSTNAME}]" "${*}"
+}
+
 # Mount the disk to the local system.
 function mount_block_device {
   local BLOCK_DEVICE=$1
@@ -16,7 +21,7 @@ function mount_block_device {
 
   if test ${UUID_STATUS} -eq 0; then
     MOUNT_DESTINATION="${MOUNT_DIRECTORY}/${UUID}"
-    echo "==> Mounting the device ${BLOCK_DEVICE} to ${MOUNT_DESTINATION}"
+    write_console "Mounting the device ${BLOCK_DEVICE} to ${MOUNT_DESTINATION}"
     /usr/bin/mkdir -p ${MOUNT_DESTINATION}
     /usr/bin/mount \
       -o defaults,noatime,discard,nobarrier \
@@ -25,8 +30,8 @@ function mount_block_device {
 
     return $?
   else
-  	echo "==> A device was attempted to be mounted, but doesn't appear to have a filesystem."
-    echo "==> Exiting with error."
+  	write_console "A device was attempted to be mounted, but doesn't appear to have a filesystem."
+    write_console "Exiting with error."
     exit 1
   fi
 }
@@ -34,15 +39,14 @@ function mount_block_device {
 # Format a single block device.
 function format_block_device {
   local BLOCK_DEVICE=$1
-  local UUID=$(blkid -s UUID -o value ${BLOCK_DEVICE})
-  local UUID_STATUS=$?
 
-  if test ${UUID_STATUS} -eq 0; then
-    echo "==> Filesystem already exists on the disk, continuing."
+  /usr/sbin/blkid -s UUID -o value ${BLOCK_DEVICE} 2>&1 > /dev/null
+  if test $? -eq 0; then
+    write_console "Filesystem already exists on the disk, continuing."
 
     return 0
   else
-    echo "==> Creating filesystem on ${BLOCK_DEVICE} of type ext4."
+    write_console "Creating filesystem on ${BLOCK_DEVICE} of type ext4."
     /usr/sbin/mkfs.ext4 \
       -m 0 \
       -b 4096 \
@@ -56,11 +60,11 @@ function format_block_device {
 function format_raid_device {
   /usr/sbin/blkid -s UUID -o value /dev/md0 2>&1 > /dev/null
   if test $? -eq 0; then
-    echo "==> Filesystem already exists on the raid device, continuing."
+    write_console "Filesystem already exists on the raid device, continuing."
 
     return 0
   else
-    echo "==> Creating filesystem on /dev/md0 of type ext4."
+    write_console "Creating filesystem on /dev/md0 of type ext4."
     /usr/sbin/mkfs.ext4 \
       -m 0 \
       -b 4096 \
@@ -73,16 +77,21 @@ function format_raid_device {
 
 # Create a RAID device from many disks.
 function create_raid_device {
-  echo "==> Probing for RAID arrays that already exist."
+  write_console "Probing for RAID arrays that already exist."
   /usr/sbin/mdadm --assemble --scan
 
   if [ -b "/dev/md0" ]; then
-    echo "==> RAID device already exists, continuing."
+    /usr/sbin/blkid -s UUID -o value /dev/md0 2>&1 > /dev/null
+    if test $? -eq 0; then
+      write_console "RAID exists, and appears to have a filesystem."
+    else
+      write_console "RAID exists, and does not appear to have a filesystem."
+    fi
 
     return 0
 
   else
-    echo "==> Creating RAID device..."
+    write_console "Creating RAID device..."
     /usr/bin/yes no | /usr/sbin/mdadm \
       --create \
       --verbose \
@@ -93,7 +102,7 @@ function create_raid_device {
       ${NVME_DISKS[*]}
 
     while [ -n "$(/usr/sbin/mdadm --detail /dev/md0 | /usr/bin/grep -ioE 'State :.*resyncing')" ]; do
-      echo "==> RAID device is currently syncing..."
+      write_console "RAID device is currently syncing..."
       sleep 1
     done
 
@@ -105,24 +114,24 @@ function create_raid_device {
 case $NVME_DISK_COUNT in
   # No NVME disks are present, so sleep forever to prevent CrashLoopBackoff.
   "0")
-    echo "==> No volumes to configure, sleeping forever."
+    write_console "No volumes to configure, sleeping forever."
     ;;
 
   # Single NVME disk is present,
   "1")
-    echo "==> Detected a single NVME volume, preparing the disk."
+    write_console "Detected a single NVME volume, preparing the disk."
     format_block_device ${NVME_DISKS[0]}
     mount_block_device ${NVME_DISKS[0]}
     ;;
 
   # Multiple NVME disks are present.
   *)
-    echo "==> Detected multiple NVME volumes, preparing all the disks."
+    write_console "Detected multiple NVME volumes, preparing all the disks."
     create_raid_device
     format_raid_device
     mount_block_device "/dev/md0"
     ;;
 esac
 
-echo "==> Utility completed, sleeping for infinity now."
+write_console "Utility completed, sleeping for infinity now."
 sleep infinity
