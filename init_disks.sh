@@ -73,6 +73,9 @@ function format_raid_device {
 
 # Create a RAID device from many disks.
 function create_raid_device {
+  echo "==> Probing for RAID arrays that already exist."
+  /usr/sbin/mdadm --assemble --scan
+
   if [ -b "/dev/md0" ]; then
     echo "==> RAID device already exists, continuing."
 
@@ -80,7 +83,7 @@ function create_raid_device {
 
   else
     echo "==> Creating RAID device..."
-    /usr/sbin/mdadm \
+    /usr/bin/yes no | /usr/sbin/mdadm \
       --create \
       --verbose \
       /dev/md0 \
